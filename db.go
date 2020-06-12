@@ -93,6 +93,9 @@ func MaxMindUpdateURL(hostname, productID, userID, licenseKey string) (string, e
 	resp, err := http.Get(u)
 	if err != nil {
 		return "", err
+	} else if resp.StatusCode != 200 {
+		body, _ := ioutil.ReadAll(resp.Body)
+		return "", fmt.Errorf("unsuccessful download response (%v): %v", resp.StatusCode, body)
 	}
 	defer resp.Body.Close()
 	md5hash := md5.New()
@@ -106,6 +109,9 @@ func MaxMindUpdateURL(hostname, productID, userID, licenseKey string) (string, e
 	resp, err = http.Get(baseurl + "update_getipaddr")
 	if err != nil {
 		return "", err
+	} else if resp.StatusCode != 200 {
+		body, _ := ioutil.ReadAll(resp.Body)
+		return "", fmt.Errorf("unsuccessful download response (%v): %v", resp.StatusCode, body)
 	}
 	defer resp.Body.Close()
 	md5hash = md5.New()
@@ -168,7 +174,10 @@ func (db *DB) watchEvents(watcher *fsnotify.Watcher) {
 		select {
 		case ev := <-watcher.Event:
 			if ev.Name == db.file && (ev.IsCreate() || ev.IsModify()) {
-				db.openFile()
+				err := db.openFile()
+				if err != nil {
+					db.sendError(fmt.Errorf("open file failed: %s", err))
+				}
 			}
 		case <-watcher.Error:
 		case <-db.notifyQuit:
@@ -215,8 +224,7 @@ func (db *DB) newReader(dbfile string) (*maxminddb.Reader, string, error) {
 		}
 
 		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			return nil, "", err
 		}
 
 		name := header.Name
@@ -230,7 +238,9 @@ func (db *DB) newReader(dbfile string) (*maxminddb.Reader, string, error) {
 			mmdb, err := maxminddb.FromBytes(b)
 			return mmdb, checksum, err
 		}
-	}	
+	}
+
+	return nil, "", fmt.Errorf("failed to find mmdb file in archive")
 }
 
 func (db *DB) setReader(reader *maxminddb.Reader, modtime time.Time, checksum string) {
@@ -324,6 +334,9 @@ func (db *DB) download(url string) (tmpfile string, err error) {
 	resp, err := http.Get(url)
 	if err != nil {
 		return "", err
+	} else if resp.StatusCode != 200 {
+		body, _ := ioutil.ReadAll(resp.Body)
+		return "", fmt.Errorf("unsuccessful download response (%v): %v", resp.StatusCode, body)
 	}
 	defer resp.Body.Close()
 	tmpfile = filepath.Join(os.TempDir(),
